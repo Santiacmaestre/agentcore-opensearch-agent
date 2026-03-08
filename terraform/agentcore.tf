@@ -41,10 +41,11 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
     MEMORY_ID            = aws_bedrockagentcore_memory.this.id
     MEMORY_ACTOR_ID      = var.memory_actor_id
     AGENT_LOG_GROUP      = aws_cloudwatch_log_group.agent_execution.name
-    OPENSEARCH_URL       = var.opensearch_url
-    OPENSEARCH_USERNAME  = var.opensearch_username
-    OPENSEARCH_PASSWORD  = var.opensearch_password
-    OPENSEARCH_USE_IAM   = tostring(var.opensearch_use_iam)
+    OPENSEARCH_URL              = var.opensearch_url
+    OPENSEARCH_USERNAME         = var.opensearch_username
+    OPENSEARCH_PASSWORD         = var.opensearch_password
+    OPENSEARCH_USE_IAM          = tostring(var.opensearch_use_iam)
+    OPENSEARCH_ADMIN_ROLE_ARN   = var.opensearch_admin_role_arn
   }
 
   depends_on = [

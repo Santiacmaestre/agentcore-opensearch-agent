@@ -72,9 +72,27 @@ _ROLE_ARN_RE = re.compile(
     r"arn:aws(?:-cn|-us-gov)?:iam::(\d{12}):role/[\w+=,.@/-]{1,512}"
 )
 
+# Phrases that mean "use the pre-configured admin role" (English + Spanish, typo-tolerant)
+_ADMIN_TRIGGER_RE = re.compile(
+    r"\b(admin(istrador|istrat(or|ive)?)?|elevated?\s*(access|permisos)?|"
+    r"rol\s*(de\s*)?admin|role\s*(de\s*)?admin|use\s*admin|usar?\s*(el\s*)?(rol|role))\b",
+    re.IGNORECASE,
+)
 
-def _detect_role_arn(session: dict[str, Any]) -> tuple[Optional[str], str]:
-    """Scan conversation for an IAM role ARN. Returns (role_arn, account_id)."""
+
+def _detect_role_arn(
+    session: dict[str, Any],
+    admin_role_arn: str = "",
+) -> tuple[Optional[str], str]:
+    """Scan conversation for an IAM role ARN. Returns (role_arn, account_id).
+
+    Detection order:
+      1. Already stored on the session (cached from a previous turn).
+      2. User message contains an explicit ARN string.
+      3. User message contains an admin-role trigger phrase AND
+         admin_role_arn is configured — use that ARN directly without
+         requiring the user to paste it.
+    """
     role_arn: Optional[str] = session.get("cross_account_role")
     account_id: str = session.get("cross_account_account_id", "")
 
@@ -84,13 +102,25 @@ def _detect_role_arn(session: dict[str, Any]) -> tuple[Optional[str], str]:
     for msg in reversed(session.get("messages_raw", [])):
         if msg.get("role") != "user":
             continue
-        match = _ROLE_ARN_RE.search(msg.get("text", ""))
+        text = msg.get("text", "")
+
+        # Priority 1: explicit ARN pasted by the user
+        match = _ROLE_ARN_RE.search(text)
         if match:
             role_arn = match.group(0)
             account_id = match.group(1)
             session["cross_account_role"] = role_arn
             session["cross_account_account_id"] = account_id
             return role_arn, account_id
+
+        # Priority 2: trigger phrase + pre-configured admin role
+        if admin_role_arn and _ADMIN_TRIGGER_RE.search(text):
+            arn_match = _ROLE_ARN_RE.match(admin_role_arn)
+            if arn_match:
+                account_id = admin_role_arn.split(":")[4]
+                session["cross_account_role"] = admin_role_arn
+                session["cross_account_account_id"] = account_id
+                return admin_role_arn, account_id
 
     return None, ""
 
@@ -172,7 +202,7 @@ def _get_or_create_session(session_id: str) -> dict[str, Any]:
 async def _ensure_cross_account(session: dict[str, Any]) -> None:
     """If a role ARN is detected, recreate the MCP client with assumed creds."""
     logger: AgentLogger = session["logger"]
-    role_arn, account_id = _detect_role_arn(session)
+    role_arn, account_id = _detect_role_arn(session, admin_role_arn=config.opensearch_admin_role_arn)
     cross_account_env = _assume_role_env(role_arn, account_id, logger)
     env_key = tuple(sorted(cross_account_env.items()))
 

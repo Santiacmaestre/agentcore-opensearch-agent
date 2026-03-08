@@ -110,8 +110,7 @@ data "aws_iam_policy_document" "runtime_policy" {
     sid     = "STSAssumeRole"
     actions = ["sts:AssumeRole"]
     resources = compact([
-      var.opensearch_admin_role_arn,
-      "*",
+      var.opensearch_admin_role_arn
     ])
   }
 

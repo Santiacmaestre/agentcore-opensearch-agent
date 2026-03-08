@@ -13,10 +13,11 @@ Contract with Terraform (env vars injected at container launch):
     DEBUG_MODE          - "true" / "1" enables verbose debug output
 
 OpenSearch-specific:
-    OPENSEARCH_URL      - Cluster endpoint (e.g. https://search-xxx.us-east-1.es.amazonaws.com)
-    OPENSEARCH_USERNAME - Basic auth username (empty for IAM auth)
-    OPENSEARCH_PASSWORD - Basic auth password (empty for IAM auth)
-    OPENSEARCH_USE_IAM  - "true" to use IAM/SigV4 auth instead of basic auth
+    OPENSEARCH_URL             - Cluster endpoint (e.g. https://search-xxx.us-east-1.es.amazonaws.com)
+    OPENSEARCH_USERNAME        - Basic auth username (empty for IAM auth)
+    OPENSEARCH_PASSWORD        - Basic auth password (empty for IAM auth)
+    OPENSEARCH_USE_IAM         - "true" to use IAM/SigV4 auth instead of basic auth
+    OPENSEARCH_ADMIN_ROLE_ARN  - Optional IAM role ARN to assume for elevated OpenSearch access
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ class Config:
     opensearch_username: str = ""
     opensearch_password: str = ""
     opensearch_use_iam: bool = False
+    opensearch_admin_role_arn: str = ""
 
     # -- Optional with defaults --
     max_result_chars: int = 20_000
@@ -103,10 +105,11 @@ def load_config(model_id_override: Optional[str] = None) -> Config:
     agent_log_group = _require("AGENT_LOG_GROUP")
 
     # OpenSearch connection
-    opensearch_url      = _require("OPENSEARCH_URL")
-    opensearch_username = _optional("OPENSEARCH_USERNAME", "")
-    opensearch_password = _optional("OPENSEARCH_PASSWORD", "")
-    opensearch_use_iam  = _optional("OPENSEARCH_USE_IAM", "false").lower() in ("1", "true", "yes")
+    opensearch_url             = _require("OPENSEARCH_URL")
+    opensearch_username        = _optional("OPENSEARCH_USERNAME", "")
+    opensearch_password        = _optional("OPENSEARCH_PASSWORD", "")
+    opensearch_use_iam         = _optional("OPENSEARCH_USE_IAM", "false").lower() in ("1", "true", "yes")
+    opensearch_admin_role_arn  = _optional("OPENSEARCH_ADMIN_ROLE_ARN", "")
 
     # MAX_RESULT_CHARS
     max_result_chars_str = _optional("MAX_RESULT_CHARS", "20000")
@@ -139,6 +142,7 @@ def load_config(model_id_override: Optional[str] = None) -> Config:
         opensearch_username=opensearch_username,
         opensearch_password=opensearch_password,
         opensearch_use_iam=opensearch_use_iam,
+        opensearch_admin_role_arn=opensearch_admin_role_arn,
         max_result_chars=max_result_chars,
         debug_mode=debug_mode,
         model_id_override=model_id_override,
