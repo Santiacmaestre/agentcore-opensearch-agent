@@ -7,7 +7,7 @@
 #   environment configuration into a single deployable runtime unit.
 #
 # Notes:
-#   - network_mode CUSTOMER_VPC is used so the container can reach
+#   - network_mode VPC is used so the container can reach
 #     VPC-internal OpenSearch endpoints via the provided subnets and
 #     security groups.
 #   - Bedrock and other AWS API calls go through VPC endpoints or
@@ -28,9 +28,9 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
   network_configuration {
     network_mode = "VPC"
 
-    customer_vpc_configuration {
-      subnet_ids         = var.vpc_subnet_ids
-      security_group_ids = var.vpc_security_group_ids
+    network_mode_config {
+      subnets         = var.vpc_subnet_ids
+      security_groups = var.vpc_security_group_ids
     }
   }
 

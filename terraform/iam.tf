@@ -56,7 +56,7 @@ data "aws_iam_policy_document" "runtime_policy" {
     resources = ["*"]
   }
 
-  # VPC ENI management required for CUSTOMER_VPC network mode
+  # VPC ENI management required for VPC network mode
   statement {
     sid = "VPCNetworking"
     actions = [
