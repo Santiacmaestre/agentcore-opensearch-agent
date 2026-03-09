@@ -6,6 +6,7 @@ Commands available during a session:
     /summarize          - Print a summary of the current session from memory
     /recall <sessionId> - Load a previous session from AgentCore Memory
     /export             - Export the current investigation bundle to disk
+    /raw <method> <path> [body] - Direct OpenSearch API call via MCP (bypasses LLM)
     /quit, /exit, /q    - Exit the agent
 
 Usage:
@@ -16,14 +17,17 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import uuid
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import click
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.syntax import Syntax
 
 from os_search_agent import __version__
 from os_search_agent.agent import build_system_prompt, create_opensearch_agent
@@ -46,10 +50,88 @@ _HELP_TEXT = """
 | `/summarize`         | Session summary from memory                        |
 | `/recall <sessionId>`| Load a previous session by session_id              |
 | `/export`            | Export investigation bundle to disk                 |
+| `/raw <method> <path> [body]` | Direct OpenSearch API call (bypasses LLM) |
 | `/quit` / `/exit`    | Exit the agent                                     |
+
+### /raw examples
+
+```
+/raw GET /_cat/indices?expand_wildcards=all&format=json
+/raw GET /_cluster/health
+/raw GET /my-index/_count
+/raw POST /my-index/_search {"query":{"match_all":{}},"size":5}
+```
 
 Type anything else to query your OpenSearch cluster.
 """
+
+
+# -- /raw helper --------------------------------------------------------------
+
+
+def _handle_raw(args_str: str, mcp_client) -> None:
+    """Parse a /raw command and call OpenSearch directly via the MCP client.
+
+    Syntax:  /raw METHOD /path[?query_params] [JSON body]
+    Examples:
+        /raw GET /_cat/indices?expand_wildcards=all&format=json
+        /raw POST /my-index/_search {"query":{"match_all":{}},"size":5}
+    """
+    tokens = args_str.split(maxsplit=2)
+    if len(tokens) < 2:
+        console.print("[red]Usage: /raw METHOD /path [body][/red]")
+        return
+
+    method = tokens[0].upper()
+    raw_path = tokens[1]
+    body_str = tokens[2] if len(tokens) > 2 else None
+
+    # Split path and query string
+    parsed = urlparse(raw_path if raw_path.startswith("/") else f"/{raw_path}")
+    path = parsed.path
+    query_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(parsed.query).items()} if parsed.query else None
+
+    # Parse body if provided
+    body = None
+    if body_str:
+        try:
+            body = json.loads(body_str)
+        except json.JSONDecodeError as exc:
+            console.print(f"[red]Invalid JSON body:[/red] {exc}")
+            return
+
+    tool_args = {"method": method, "path": path}
+    if query_params:
+        tool_args["query_params"] = query_params
+    if body is not None:
+        tool_args["body"] = body
+
+    console.print(f"[dim]→ MCP call: GenericOpenSearchApiTool {method} {raw_path}[/dim]")
+
+    try:
+        result = mcp_client.call_tool_sync(
+            tool_use_id=str(uuid.uuid4()),
+            name="GenericOpenSearchApiTool",
+            arguments=tool_args,
+        )
+
+        # Extract text from the result content
+        for item in result.get("content", []):
+            text = item.get("text", "")
+            # Try to pretty-print JSON
+            try:
+                parsed_json = json.loads(text.split("\n", 1)[-1])
+                pretty = json.dumps(parsed_json, indent=2, ensure_ascii=False)
+                console.print(Syntax(pretty, "json", theme="monokai", word_wrap=True))
+            except (json.JSONDecodeError, IndexError):
+                console.print(text)
+
+        status = result.get("status", "unknown")
+        if status == "error":
+            console.print(f"[red]Tool returned error status[/red]")
+
+    except Exception as exc:
+        console.print(f"[red]MCP call failed:[/red] {exc}")
 
 
 # -- Async core ---------------------------------------------------------------
@@ -179,6 +261,15 @@ async def _run_session(
                 elif cmd == "/export":
                     path = export_bundle(bundle.build(), output_dir=export_dir, logger=logger)
                     console.print(f"[green]Bundle exported:[/green] {path}")
+
+                elif cmd == "/raw":
+                    if len(parts) < 2:
+                        console.print(
+                            "[red]/raw requires at least: METHOD PATH[/red]\n"
+                            "[dim]Example: /raw GET /_cat/indices?expand_wildcards=all&format=json[/dim]"
+                        )
+                        continue
+                    _handle_raw(parts[1], mcp_client)
 
                 else:
                     console.print(f"[red]Unknown command: {cmd}[/red]  Use /help")
